@@ -126,6 +126,8 @@ async def generate_news(topics):
 — напиши всё на русском  
 — формат удобный для Telegram  
 — самые важные новости пиши первыми и добавь в названии этих новостей этот смайлик 🔥
+— если всё что говорится в новости может сказаться на мире, то после новости анализируй и пиши блок текста о том как это может сказаться на мире и жизни
+— добавь в самом конце дайджеста такой текст "Данные новости были проанализированы и записаны ИИ Gemini, создатель не ручается за актуальность и правдивость данной информации, настоятельно рекомендую проверять информацию из надежных источников."
 
 Формат:
 
@@ -133,7 +135,9 @@ async def generate_news(topics):
 
 📌 Тема:
 — новость  
+    — как это может сказаться на мире и жизни (если последствия будут ощутимыми)
 — новость  
+    — как это может сказаться на мире и жизни (если последствия будут ощутимыми)
 """
 
     response = await asyncio.to_thread(
@@ -159,8 +163,28 @@ async def start(event):
         "⚠️ Канал должен быть публичным.\n\n"
         "⚠️ Бот должен быть администратором канала."
     )
+    
+# ================== POST NOW COMMAND ==================
 
+@client.on(events.NewMessage(pattern="/post_now"))
+async def post_now(event):
 
+    if not event.is_private:
+        return
+
+    user_id = event.sender_id
+
+    # режим ожидания канала
+    user_sessions[user_id] = {
+        "mode": "post_now"
+    }
+
+    await event.reply(
+        "📢 Отправьте username канала для публикации.\n\n"
+        "Например:\n"
+        "@my_channel"
+    )
+    
 # ================== CHANNEL INPUT ==================
 
 @client.on(events.NewMessage)
@@ -169,13 +193,12 @@ async def handle_channel_input(event):
     if not event.is_private:
         return
 
+    user_id = event.sender_id
     text = event.raw_text.strip()
 
-    # игнорируем команды
     if text.startswith("/"):
         return
 
-    # ждём username канала
     if not text.startswith("@"):
         return
 
@@ -183,8 +206,63 @@ async def handle_channel_input(event):
 
         entity = await client.get_entity(text)
 
+        # 🔐 Проверяем права администратора
+        perms = await client.get_permissions(
+            entity,
+            user_id
+        )
+
+        if not perms.is_admin:
+
+            await event.reply(
+                "❌ У вас нет прав администратора в этом канале."
+            )
+
+            return
+
         cid = entity.id
-        user_id = event.sender_id
+
+        session = user_sessions.get(user_id)
+
+        # ===== POST_NOW MODE =====
+
+        if session and session.get("mode") == "post_now":
+
+            await event.reply(
+                "⏳ Генерирую новости..."
+            )
+
+            try:
+
+                # если канал настроен — берём его темы
+                if str(cid) in channels_data:
+
+                    topics = channels_data[str(cid)]["topics"]
+
+                else:
+
+                    topics = ["Общество"]
+
+                news = await generate_news(topics)
+
+                await client.send_message(
+                    cid,
+                    news
+                )
+
+                await event.reply(
+                    "✅ Новости опубликованы!"
+                )
+
+            except Exception as e:
+
+                await event.reply(
+                    f"❌ Ошибка генерации:\n{e}"
+                )
+
+            return
+
+        # ===== CONFIG MODE =====
 
         user_sessions[user_id] = {
             "channel": cid,
@@ -199,10 +277,11 @@ async def handle_channel_input(event):
     except Exception:
 
         await event.reply(
-            "❌ Не удалось найти канал.\n"
-            "Проверьте username."
+            "❌ Не удалось получить доступ к каналу.\n"
+            "Проверьте:\n"
+            "— бот администратор\n"
+            "— username правильный"
         )
-
 # ================== CALLBACK ==================
 
 @client.on(events.CallbackQuery)
