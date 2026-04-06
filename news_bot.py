@@ -75,8 +75,29 @@ def save_channels():
         encoding="utf-8"
     )
 
-# ================== CHANNEL FETCH ==================
+# ================== MESSAGE SEPARATOR ==================
 
+def split_message(text, max_length=4000):
+
+    parts = []
+
+    while len(text) > max_length:
+
+        part = text[:max_length]
+
+        # стараемся резать по строке
+        last_newline = part.rfind("\n")
+
+        if last_newline != -1:
+            part = part[:last_newline]
+
+        parts.append(part)
+
+        text = text[len(part):]
+
+    parts.append(text)
+
+    return parts
 
 # ================== TOPIC BUTTONS ==================
 
@@ -245,10 +266,14 @@ async def handle_channel_input(event):
 
                 news = await generate_news(topics)
 
-                await client.send_message(
-                    cid,
-                    news
-                )
+                parts = split_message(news)
+
+                for part in parts:
+
+                    await client.send_message(
+                        cid,
+                        part
+                    )
 
                 await event.reply(
                     "✅ Новости опубликованы!"
@@ -348,7 +373,7 @@ async def callbacks(event):
         channels_data[cid] = {
             "owner": user_id,
             "topics": topics,
-            "time": "09:00"
+            "time": "07:00"
         }
 
         save_channels()
