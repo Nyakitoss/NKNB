@@ -7,7 +7,7 @@ from pathlib import Path
 from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
 
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,10 +25,8 @@ CHANNELS_FILE = BASE_DIR / "channels.json"
 
 # ================== GEMINI ==================
 
-genai.configure(api_key=GEMINI_API_KEY)
-
-model = genai.GenerativeModel(
-    "gemini-2.5-flash"
+client_ai = genai.Client(
+    api_key=GEMINI_API_KEY
 )
 
 # ================== CLIENT ==================
@@ -146,6 +144,7 @@ async def generate_news(topics):
 — если новости на английском — переведи  
 — напиши всё на русском  
 — формат удобный для Telegram  
+— самые важные новости пиши первыми и добавь в названии этих новостей этот смайлик 🔥
 
 Формат:
 
@@ -154,13 +153,12 @@ async def generate_news(topics):
 📌 Тема:
 — новость  
 — новость  
-
-Не пиши лишнего текста.
 """
 
     response = await asyncio.to_thread(
-        model.generate_content,
-        prompt
+        client_ai.models.generate_content,
+        model="gemini-2.5-flash",
+        contents=prompt
     )
 
     return response.text
