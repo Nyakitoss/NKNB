@@ -77,25 +77,6 @@ def save_channels():
 
 # ================== CHANNEL FETCH ==================
 
-async def get_admin_channels():
-
-    dialogs = await client.get_dialogs()
-
-    result = []
-
-    for d in dialogs:
-
-        if d.is_channel:
-
-            entity = d.entity
-
-            if entity.creator or entity.admin_rights:
-
-                result.append(
-                    (entity.title, entity.id)
-                )
-
-    return result
 
 # ================== TOPIC BUTTONS ==================
 
@@ -171,34 +152,56 @@ async def start(event):
     if not event.is_private:
         return
 
-    channels = await get_admin_channels()
+    await event.reply(
+        "📢 Отправьте username канала.\n\n"
+        "Например:\n"
+        "@my_channel\n\n"
+        "⚠️ Канал должен быть публичным.\n\n"
+        "⚠️ Бот должен быть администратором канала."
+    )
 
-    if not channels:
 
-        await event.reply(
-            "❌ У вас нет каналов.\n"
-            "Добавьте бота администратором."
-        )
+# ================== CHANNEL INPUT ==================
 
+@client.on(events.NewMessage)
+async def handle_channel_input(event):
+
+    if not event.is_private:
         return
 
-    user_id = event.sender_id
+    text = event.raw_text.strip()
 
-    buttons = []
+    # игнорируем команды
+    if text.startswith("/"):
+        return
 
-    for title, cid in channels:
+    # ждём username канала
+    if not text.startswith("@"):
+        return
 
-        buttons.append([
-            Button.inline(
-                title,
-                data=f"channel:{cid}"
-            )
-        ])
+    try:
 
-    await event.reply(
-        "📢 Выберите канал:",
-        buttons=buttons
-    )
+        entity = await client.get_entity(text)
+
+        cid = entity.id
+        user_id = event.sender_id
+
+        user_sessions[user_id] = {
+            "channel": cid,
+            "topics": []
+        }
+
+        await event.reply(
+            "🧠 Выберите категории:",
+            buttons=build_topic_buttons(user_id)
+        )
+
+    except Exception:
+
+        await event.reply(
+            "❌ Не удалось найти канал.\n"
+            "Проверьте username."
+        )
 
 # ================== CALLBACK ==================
 
