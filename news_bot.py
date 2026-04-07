@@ -417,26 +417,46 @@ async def callbacks(event):
 
 async def daily_loop():
 
+    print("Daily loop started")
+
     while True:
 
         now = datetime.now()
 
         for cid, cfg in channels_data.items():
 
-            time_str = cfg.get("time", "09:00")
+            try:
 
-            h, m = map(int, time_str.split(":"))
+                time_str = cfg.get("time", "09:00")
 
-            target = now.replace(
-                hour=h,
-                minute=m,
-                second=0,
-                microsecond=0
-            )
+                h, m = map(int, time_str.split(":"))
 
-            if abs((now - target).total_seconds()) < 60:
+                target = now.replace(
+                    hour=h,
+                    minute=m,
+                    second=0,
+                    microsecond=0
+                )
 
-                try:
+                # дата последнего поста
+                last_post_date = cfg.get("last_post")
+
+                today_str = now.strftime("%Y-%m-%d")
+
+                # если уже постили сегодня — пропускаем
+                if last_post_date == today_str:
+                    continue
+
+                # разница во времени
+                diff = (now - target).total_seconds()
+
+                # если время прошло,
+                # но не больше 1 часа (3600 сек)
+                if 0 <= diff <= 3600:
+
+                    print(
+                        f"Posting news for {cid}"
+                    )
 
                     topics = cfg["topics"]
 
@@ -444,23 +464,33 @@ async def daily_loop():
                         topics
                     )
 
-                    await client.send_message(
-                        int(cid),
-                        news
-                    )
+                    parts = split_message(news)
+
+                    for part in parts:
+
+                        await client.send_message(
+                            int(cid),
+                            part
+                        )
+
+                    # сохраняем дату поста
+                    channels_data[cid]["last_post"] = today_str
+
+                    save_channels()
 
                     print(
                         "NEWS POSTED:",
                         cid
                     )
 
-                except Exception as e:
+            except Exception as e:
 
-                    print(
-                        "NEWS ERROR:",
-                        e
-                    )
+                print(
+                    "DAILY LOOP ERROR:",
+                    e
+                )
 
+        # проверяем каждые 60 секунд
         await asyncio.sleep(60)
 
 # ================== MAIN ==================
@@ -472,6 +502,7 @@ async def main():
     )
 
     print("news bot started")
+    print("Server time:", datetime.now())
 
     asyncio.create_task(
         daily_loop()
