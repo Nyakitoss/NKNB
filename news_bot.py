@@ -79,14 +79,21 @@ def split_message(text, max_length=4000):
         # стараемся резать по строке
         last_newline = part.rfind("\n")
 
-        if last_newline != -1:
+        if last_newline != -1 and last_newline > max_length * 0.8:  # не резать слишком рано
             part = part[:last_newline]
 
-        parts.append(part)
+        # Удаляем пустые строки в начале и конце
+        part = part.strip()
+        
+        if part:  # добавляем только непустые части
+            parts.append(part)
 
         text = text[len(part):]
 
-    parts.append(text)
+    # Добавляем последнюю часть, если она не пустая
+    remaining_text = text.strip()
+    if remaining_text:
+        parts.append(remaining_text)
 
     return parts
 
@@ -97,14 +104,21 @@ def sanitize_text(text):
     if not text:
         return ""
 
-    # удаляем нулевые символы
+    # удаляем нулевые символы и другие невидимые символы
     text = text.replace("\x00", "")
+    text = text.replace("\u200B", "")  # zero-width space
+    text = text.replace("\u200C", "")  # zero-width non-joiner
+    text = text.replace("\u200D", "")  # zero-width joiner
 
     # заменяем странные unicode-разделители
     text = text.replace("\u2028", "\n")
     text = text.replace("\u2029", "\n")
 
-    # убираем лишние пробелы
+    # убираем множественные пустые строки
+    while "\n\n\n" in text:
+        text = text.replace("\n\n\n", "\n\n")
+
+    # убираем лишние пробелы в начале и конце
     text = text.strip()
 
     return text
@@ -311,19 +325,31 @@ async def handle_channel_input(event):
 
                 parts = split_message(news)
 
-                for part in parts:
-
+                for i, part in enumerate(parts):
+                    
                     part = sanitize_text(part)
 
-                    # пропускаем пустые куски
-                    if not part:
+                    # Дополнительная проверка на пустые и невалидные сообщения
+                    if not part or len(part.strip()) == 0:
+                        print(f"Skipping empty part #{i}")
                         continue
-
-                    await client.send_message(
-                        int(cid),
-                        part
-                    )
-                    print("Sending part length:", len(part))
+                    
+                    if len(part) > 4096:  # Telegram limit
+                        print(f"Part #{i} too long ({len(part)} chars), splitting further")
+                        sub_parts = split_message(part, 3500)  # Recursive split
+                        for sub_part in sub_parts:
+                            if sub_part.strip():
+                                await client.send_message(
+                                    int(cid),
+                                    sub_part
+                                )
+                                print(f"Sending sub-part length: {len(sub_part)}")
+                    else:
+                        await client.send_message(
+                            int(cid),
+                            part
+                        )
+                        print(f"Sending part #{i} length: {len(part)}")
 
                 await event.reply(
                     "✅ Новости опубликованы!"
@@ -482,18 +508,31 @@ async def daily_loop():
 
                     parts = split_message(news)
 
-                    for part in parts:
+                    for i, part in enumerate(parts):
 
                         part = sanitize_text(part)
 
-                        if not part:
+                        # Дополнительная проверка на пустые и невалидные сообщения
+                        if not part or len(part.strip()) == 0:
+                            print(f"Skipping empty part #{i} in daily loop")
                             continue
-
-                        await client.send_message(
-                            cid,
-                            part
-                        )
-                        print("Sending part length:", len(part))
+                        
+                        if len(part) > 4096:  # Telegram limit
+                            print(f"Part #{i} too long ({len(part)} chars), splitting further")
+                            sub_parts = split_message(part, 3500)  # Recursive split
+                            for sub_part in sub_parts:
+                                if sub_part.strip():
+                                    await client.send_message(
+                                        cid,
+                                        sub_part
+                                    )
+                                    print(f"Sending sub-part length: {len(sub_part)}")
+                        else:
+                            await client.send_message(
+                                cid,
+                                part
+                            )
+                            print(f"Sending part #{i} length: {len(part)}")
                     # сохраняем дату поста
                     channels_data[cid]["last_post"] = today_str
 
