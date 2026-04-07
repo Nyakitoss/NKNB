@@ -102,6 +102,25 @@ def split_message(text, max_length=4000):
 
     return parts
 
+# ================== TEXT SANITIZE ==================
+
+def sanitize_text(text):
+
+    if not text:
+        return ""
+
+    # удаляем нулевые символы
+    text = text.replace("\x00", "")
+
+    # заменяем странные unicode-разделители
+    text = text.replace("\u2028", "\n")
+    text = text.replace("\u2029", "\n")
+
+    # убираем лишние пробелы
+    text = text.strip()
+
+    return text
+
 # ================== TOPIC BUTTONS ==================
 
 def build_topic_buttons(user_id):
@@ -299,14 +318,24 @@ async def handle_channel_input(event):
 
                 news = await generate_news(topics)
 
+                # очистка текста
+                news = sanitize_text(news)
+
                 parts = split_message(news)
 
                 for part in parts:
 
+                    part = sanitize_text(part)
+
+                    # пропускаем пустые куски
+                    if not part:
+                        continue
+
                     await client.send_message(
-                        cid,
+                        int(cid),
                         part
                     )
+                print("Sending part length:", len(part))
 
                 await event.reply(
                     "✅ Новости опубликованы!"
@@ -463,19 +492,24 @@ async def daily_loop():
 
                     topics = cfg["topics"]
 
-                    news = await generate_news(
-                        topics
-                    )
+                    news = await generate_news(topics)
+
+                    news = sanitize_text(news)
 
                     parts = split_message(news)
 
                     for part in parts:
 
+                        part = sanitize_text(part)
+
+                        if not part:
+                            continue
+
                         await client.send_message(
-                            int(cid),
+                            cid,
                             part
                         )
-
+                    print("Sending part length:", len(part))
                     # сохраняем дату поста
                     channels_data[cid]["last_post"] = today_str
 
