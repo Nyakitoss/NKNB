@@ -4,8 +4,9 @@
   },
   "deploy": {
     "startCommand": "python news_bot.py",
-    "healthcheckPath": "/",
-    "healthcheckTimeout": 100,
-    "restartPolicyType": "ON_FAILURE"
+    "restartPolicyType": "ON_FAILURE",
+    "healthcheck": {
+      "enabled": false
+    }
   }
 }
