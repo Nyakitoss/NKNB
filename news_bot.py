@@ -10,6 +10,9 @@ from telethon.sessions import StringSession
 from google import genai
 from dotenv import load_dotenv
 
+from storage import storage
+from validators import InputValidator, ErrorHandler, ValidationError
+
 load_dotenv()
 
 # ================== CONFIG ==================
@@ -56,27 +59,12 @@ TOPICS = [
 
 # ================== STORAGE ==================
 
-if CHANNELS_FILE.exists():
-    try:
-        channels_data = json.loads(
-            CHANNELS_FILE.read_text(encoding="utf-8")
-        )
-    except Exception:
-        channels_data = {}
-else:
-    channels_data = {}
-
+# Используем новое хранилище с поддержкой Redis
+channels_data = storage.get_channels_data()
 user_sessions = {}
 
 def save_channels():
-    CHANNELS_FILE.write_text(
-        json.dumps(
-            channels_data,
-            indent=2,
-            ensure_ascii=False
-        ),
-        encoding="utf-8"
-    )
+    return storage.save_channels_data(channels_data)
 
 # ================== MESSAGE SEPARATOR ==================
 
@@ -263,8 +251,10 @@ async def handle_channel_input(event):
         return
 
     try:
-
-        entity = await client.get_entity(text)
+        # Валидация username канала
+        validated_username = InputValidator.validate_channel_username(text)
+        
+        entity = await client.get_entity(validated_username)
 
         # 🔐 Проверяем права администратора
         perms = await client.get_permissions(
@@ -273,11 +263,9 @@ async def handle_channel_input(event):
         )
 
         if not perms.is_admin:
-
             await event.reply(
                 "❌ У вас нет прав администратора в этом канале."
             )
-
             return
 
         cid = entity.id
@@ -335,17 +323,15 @@ async def handle_channel_input(event):
                         int(cid),
                         part
                     )
-                print("Sending part length:", len(part))
+                    print("Sending part length:", len(part))
 
                 await event.reply(
                     "✅ Новости опубликованы!"
                 )
 
             except Exception as e:
-
-                await event.reply(
-                    f"❌ Ошибка генерации:\n{e}"
-                )
+                error_msg = ErrorHandler.handle_gemini_error(e)
+                await event.reply(error_msg)
 
             return
 
@@ -361,14 +347,12 @@ async def handle_channel_input(event):
             buttons=build_topic_buttons(user_id)
         )
 
-    except Exception:
-
-        await event.reply(
-            "❌ Не удалось получить доступ к каналу.\n"
-            "Проверьте:\n"
-            "— бот администратор\n"
-            "— username правильный"
-        )
+    except ValidationError as ve:
+        await event.reply(str(ve))
+    
+    except Exception as e:
+        error_msg = ErrorHandler.handle_telegram_error(e)
+        await event.reply(error_msg)
 # ================== CALLBACK ==================
 
 @client.on(events.CallbackQuery)
@@ -509,7 +493,7 @@ async def daily_loop():
                             cid,
                             part
                         )
-                    print("Sending part length:", len(part))
+                        print("Sending part length:", len(part))
                     # сохраняем дату поста
                     channels_data[cid]["last_post"] = today_str
 
@@ -521,11 +505,16 @@ async def daily_loop():
                     )
 
             except Exception as e:
-
-                print(
-                    "DAILY LOOP ERROR:",
-                    e
-                )
+                error_type = type(e).__name__
+                print(f"DAILY LOOP ERROR ({error_type}): {e}")
+                
+                # Дополнительная информация для отладки
+                if "gemini" in str(e).lower():
+                    print("Gemini API error - check API key and quotas")
+                elif "telegram" in str(e).lower():
+                    print("Telegram API error - check bot permissions")
+                elif "redis" in str(e).lower():
+                    print("Redis error - check connection")
 
         # проверяем каждые 60 секунд
         await asyncio.sleep(60)
