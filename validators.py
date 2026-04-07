@@ -103,6 +103,12 @@ class ErrorHandler:
         elif "content" in error_str and "policy" in error_str:
             return "❌ Контент нарушает политику Gemini API."
         
+        elif "503" in error_str or "unavailable" in error_str or "high demand" in error_str:
+            return "⏳ Gemini API перегружен. Повторная попытка через несколько секунд..."
+        
+        elif "暂时不可用" in error_str or "temporarily unavailable" in error_str:
+            return "⏳ Gemini API временно недоступен. Попробуйте через минуту."
+        
         else:
             return f"❌ Ошибка Gemini API: {str(error)}"
     
