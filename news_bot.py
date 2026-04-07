@@ -19,9 +19,9 @@ API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("NEWS_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-BASE_DIR = Path(__file__).parent
-
-CHANNELS_FILE = BASE_DIR / "channels.json"
+DATA_DIR = Path("/data")
+DATA_DIR.mkdir(exist_ok=True)
+CHANNELS_FILE = DATA_DIR / "channels.json"
 
 # ================== GEMINI ==================
 
@@ -57,9 +57,12 @@ TOPICS = [
 # ================== STORAGE ==================
 
 if CHANNELS_FILE.exists():
-    channels_data = json.loads(
-        CHANNELS_FILE.read_text(encoding="utf-8")
-    )
+    try:
+        channels_data = json.loads(
+            CHANNELS_FILE.read_text(encoding="utf-8")
+        )
+    except Exception:
+        channels_data = {}
 else:
     channels_data = {}
 
