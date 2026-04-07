@@ -9,60 +9,72 @@ class GeminiClient:
         self.client = genai.Client(api_key=api_key)
         self.max_retries = 3
         self.base_delay = 2  # seconds
+        self.models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
         
     async def generate_news(self, topics: List[str]) -> str:
-        """Генерация новостей с retry механизмом"""
+        """Генерация новостей с retry механизмом и fallback моделей"""
         
         prompt = self._build_prompt(topics)
         
         for attempt in range(self.max_retries):
-            try:
-                response = await asyncio.to_thread(
-                    self.client.models.generate_content,
-                    model="gemini-2.0-flash-exp",
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=0.7,
-                        max_output_tokens=8000,
-                    )
-                )
-                
-                if response.text:
-                    return response.text
-                else:
-                    raise Exception("Empty response from Gemini")
+            for model in self.models:
+                try:
+                    print(f"Trying model: {model} (attempt {attempt + 1}/{self.max_retries})")
                     
-            except Exception as e:
-                error_str = str(e).lower()
-                
-                # Если это ошибка перегрузки, пробуем еще раз
-                if any(keyword in error_str for keyword in ['503', 'unavailable', 'overloaded', 'high demand']):
-                    if attempt < self.max_retries - 1:
-                        delay = self._calculate_delay(attempt)
-                        print(f"Gemini API overloaded (attempt {attempt + 1}/{self.max_retries}). Retrying in {delay}s...")
-                        await asyncio.sleep(delay)
-                        continue
+                    response = await asyncio.to_thread(
+                        self.client.models.generate_content,
+                        model=model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.7,
+                            max_output_tokens=8000,
+                        )
+                    )
+                    
+                    if response.text:
+                        print(f"Successfully generated news using {model}")
+                        return response.text
                     else:
-                        # Последняя попытка не удалась
-                        raise Exception("Gemini API暂时不可用，请稍后再试。Gemini API temporarily unavailable, please try again later.")
-                
-                # Другие ошибки не retry'им
-                elif 'quota' in error_str or 'limit' in error_str:
-                    raise Exception("API quota exceeded. Please check your Gemini API usage.")
-                
-                elif 'api key' in error_str:
-                    raise Exception("Invalid Gemini API key.")
-                
-                else:
-                    if attempt < self.max_retries - 1:
-                        delay = self._calculate_delay(attempt)
-                        print(f"Gemini API error (attempt {attempt + 1}/{self.max_retries}): {e}. Retrying in {delay}s...")
-                        await asyncio.sleep(delay)
+                        raise Exception("Empty response from Gemini")
+                        
+                except Exception as e:
+                    error_str = str(e).lower()
+                    
+                    # Если модель не найдена, пробуем следующую
+                    if 'not found' in error_str or '404' in error_str:
+                        print(f"Model {model} not found, trying next...")
                         continue
+                    
+                    # Если это ошибка перегрузки, пробуем еще раз с той же моделью
+                    elif any(keyword in error_str for keyword in ['503', 'unavailable', 'overloaded', 'high demand']):
+                        if attempt < self.max_retries - 1:
+                            delay = self._calculate_delay(attempt)
+                            print(f"Gemini API overloaded (attempt {attempt + 1}/{self.max_retries}). Retrying in {delay}s...")
+                            await asyncio.sleep(delay)
+                            break  # перезапускаем retry с первой модели
+                        else:
+                            raise Exception("Gemini API временно недоступен. Попробуйте позже.")
+                    
+                    # Другие ошибки не retry'им
+                    elif 'quota' in error_str or 'limit' in error_str:
+                        raise Exception("Превышен лимит API. Проверьте использование Gemini API.")
+                    
+                    elif 'api key' in error_str:
+                        raise Exception("Неверный API ключ Gemini.")
+                    
                     else:
-                        raise e
+                        print(f"Error with {model}: {e}")
+                        if model == self.models[-1]:  # последняя модель
+                            if attempt < self.max_retries - 1:
+                                delay = self._calculate_delay(attempt)
+                                print(f"Retrying in {delay}s...")
+                                await asyncio.sleep(delay)
+                                break
+                            else:
+                                raise e
+                        continue
         
-        raise Exception("Failed to generate news after all retries.")
+        raise Exception("Не удалось сгенерировать новости после всех попыток.")
     
     def _build_prompt(self, topics: List[str]) -> str:
         """Создание промпта для генерации новостей"""
