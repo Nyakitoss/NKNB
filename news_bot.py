@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from storage import storage
 from validators import InputValidator, ErrorHandler, ValidationError
 from gemini_client import create_gemini_client
+from cache_manager import cache_manager
 
 load_dotenv()
 
@@ -185,17 +186,50 @@ async def post_now(event):
 
     user_id = event.sender_id
 
-    # режим ожидания канала
+    # Check API limits first
+    limits = cache_manager.check_api_limits()
+    if not limits["can_request"]:
+        time_until_reset = cache_manager.get_time_until_reset()
+        await event.reply(
+            f"**API Limit Reached**\n\n"
+            f"Used: {limits['requests_today']}/{limits['daily_limit']} requests\n"
+            f"Reset in: {time_until_reset}\n\n"
+            f"Try:\n"
+            f"1. Wait for reset\n"
+            f"2. Use /limits to check status\n"
+            f"3. Request will use cached news if available"
+        )
+        return
+
+    # Wait for channel input mode
     user_sessions[user_id] = {
         "mode": "post_now"
     }
 
     await event.reply(
-        "📢 Отправьте username канала для публикации.\n\n"
-        "Например:\n"
-        "@my_channel"
+        "**API Status**: Available\n\n"
+        f"Requests today: {limits['requests_today']}/{limits['daily_limit']}\n\n"
+        "Send channel username for publication:\n\n"
+        "`@my_channel`"
     )
     
+# ================== LIMITS COMMAND ==================
+
+@client.on(events.NewMessage(pattern="/limits"))
+async def limits(event):
+
+    if not event.is_private:
+        return
+
+    limits = cache_manager.check_api_limits()
+    time_until_reset = cache_manager.get_time_until_reset()
+
+    await event.reply(
+        f"**API Limits**\n\n"
+        f"Used: {limits['requests_today']}/{limits['daily_limit']} requests\n"
+        f"Reset in: {time_until_reset}"
+    )
+
 # ================== CHANNEL INPUT ==================
 
 @client.on(events.NewMessage)

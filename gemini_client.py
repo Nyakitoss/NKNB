@@ -3,6 +3,7 @@ import time
 from typing import List, Optional
 from google import genai
 from google.genai import types
+from cache_manager import cache_manager
 
 class GeminiClient:
     def __init__(self, api_key: str):
@@ -12,8 +13,27 @@ class GeminiClient:
         self.models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
         
     async def generate_news(self, topics: List[str]) -> str:
-        """Генерация новостей с retry механизмом и fallback моделей"""
+        """Generate news with caching and API limits tracking"""
         
+        # Check cache first
+        cached_news = cache_manager.get_cached_news(topics)
+        if cached_news:
+            return cached_news
+        
+        # Check API limits
+        limits = cache_manager.check_api_limits()
+        if not limits["can_request"]:
+            time_until_reset = cache_manager.get_time_until_reset()
+            raise Exception(
+                f"API limit exceeded. Used {limits['requests_today']}/{limits['daily_limit']} requests. "
+                f"Reset in {time_until_reset}. Try using cached news or wait for reset."
+            )
+        
+        # Record API request
+        if not cache_manager.record_api_request():
+            raise Exception("Failed to record API request - possible limit issue")
+        
+        # Generate new content
         prompt = self._build_prompt(topics)
         
         for attempt in range(self.max_retries):
@@ -33,6 +53,10 @@ class GeminiClient:
                     
                     if response.text:
                         print(f"Successfully generated news using {model}")
+                        
+                        # Cache the result
+                        cache_manager.cache_news(topics, response.text)
+                        
                         return response.text
                     else:
                         raise Exception("Empty response from Gemini")
@@ -40,31 +64,36 @@ class GeminiClient:
                 except Exception as e:
                     error_str = str(e).lower()
                     
-                    # Если модель не найдена, пробуем следующую
+                    # If model not found, try next
                     if 'not found' in error_str or '404' in error_str:
                         print(f"Model {model} not found, trying next...")
                         continue
                     
-                    # Если это ошибка перегрузки, пробуем еще раз с той же моделью
+                    # If API overloaded, retry
                     elif any(keyword in error_str for keyword in ['503', 'unavailable', 'overloaded', 'high demand']):
                         if attempt < self.max_retries - 1:
                             delay = self._calculate_delay(attempt)
                             print(f"Gemini API overloaded (attempt {attempt + 1}/{self.max_retries}). Retrying in {delay}s...")
                             await asyncio.sleep(delay)
-                            break  # перезапускаем retry с первой модели
+                            break
                         else:
-                            raise Exception("Gemini API временно недоступен. Попробуйте позже.")
+                            raise Exception("Gemini API temporarily unavailable. Try again later.")
                     
-                    # Другие ошибки не retry'им
+                    # Other errors
                     elif 'quota' in error_str or 'limit' in error_str:
-                        raise Exception("Превышен лимит API. Проверьте использование Gemini API.")
+                        limits = cache_manager.check_api_limits()
+                        time_until_reset = cache_manager.get_time_until_reset()
+                        raise Exception(
+                            f"API quota exceeded. Used {limits['requests_today']}/{limits['daily_limit']} requests. "
+                            f"Reset in {time_until_reset}."
+                        )
                     
                     elif 'api key' in error_str:
-                        raise Exception("Неверный API ключ Gemini.")
+                        raise Exception("Invalid Gemini API key.")
                     
                     else:
                         print(f"Error with {model}: {e}")
-                        if model == self.models[-1]:  # последняя модель
+                        if model == self.models[-1]:
                             if attempt < self.max_retries - 1:
                                 delay = self._calculate_delay(attempt)
                                 print(f"Retrying in {delay}s...")
@@ -74,7 +103,7 @@ class GeminiClient:
                                 raise e
                         continue
         
-        raise Exception("Не удалось сгенерировать новости после всех попыток.")
+        raise Exception("Failed to generate news after all attempts.")
     
     def _build_prompt(self, topics: List[str]) -> str:
         """Создание промпта для генерации новостей"""
