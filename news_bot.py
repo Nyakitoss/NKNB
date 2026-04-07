@@ -403,7 +403,7 @@ async def callbacks(event):
         channels_data[cid] = {
             "owner": user_id,
             "topics": topics,
-            "time": "07:00"
+            "time": "09:00"
         }
 
         save_channels()
