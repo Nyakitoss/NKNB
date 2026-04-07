@@ -19,7 +19,7 @@ API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("NEWS_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-DATA_DIR = Path("/data")
+DATA_DIR = Path("/app/data")
 DATA_DIR.mkdir(exist_ok=True)
 CHANNELS_FILE = DATA_DIR / "channels.json"
 
