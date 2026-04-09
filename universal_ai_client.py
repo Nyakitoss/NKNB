@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import json
+from datetime import datetime
 from typing import List, Optional, Dict
 from abc import ABC, abstractmethod
 
@@ -17,11 +18,13 @@ class GroqProvider(BaseAIProvider):
         self.api_key = api_key
         self.base_url = "https://api.groq.com/openai/v1"
         # Best models for news generation (updated April 2025)
-        # Using only production models for stability
+        # Priority: models with potential web access or latest knowledge
         self.models = [
-            "llama-3.3-70b-versatile",  # Best quality, latest production model
-            "llama-3.1-8b-instant",     # Fast and efficient
-            "openai/gpt-oss-120b",        # Large model for comprehensive news
+            "qwen/qwen3-32b",              # Large context, up-to-date knowledge
+            "groq/compound",                 # Has web search capabilities
+            "canopylabs/orpheus-v1-english", # Specialized for current events
+            "llama-3.3-70b-versatile",     # Latest production model
+            "openai/gpt-oss-120b",         # Large model for comprehensive analysis
         ]
         self.current_model_index = 0
         
@@ -108,11 +111,16 @@ class GroqProvider(BaseAIProvider):
                     raise Exception(f"All Groq models failed. Last error: {str(e)}")
     
     def _build_prompt(self, topics: List[str]) -> str:
+        current_date = datetime.now().strftime("%d.%m.%Y")
+        
         return f"""
 Создай актуальный новостной дайджест по темам: {", ".join(topics)}.
 
-ТРЕБОВАНИЯ:
-• Используй актуальную информацию о последних событиях (24 часа)
+КРИТИЧЕСКИ ВАЖНО:
+• Сегодняшняя дата: {current_date}
+• ИСПОЛЬЗУЙ ТОЛЬКО СВЕЖЕЙШИЕ НОВОСТИ за последние 24 часа
+• Если у тебя нет доступа к интернету, сообщи об этом явно
+• НЕ ИСПОЛЬЗУЙ устаревшие данные (ниже 2024 года)
 • Пиши на русском языке
 • Создай удобный формат для Telegram
 • Добавляй релевантные эмодзи к каждой новости
@@ -121,7 +129,7 @@ class GroqProvider(BaseAIProvider):
 • Будь объективным и фактичным
 
 ФОРМАТ:
-📰 Ежедневный новостной дайджест
+📰 Ежедневный новостной дайджест | {current_date}
 
 📌 {topics[0]}:
 🔹 Новость 1 - краткое описание события
@@ -136,7 +144,7 @@ class GroqProvider(BaseAIProvider):
 
 Продолжай с другими темами...
 
-ВАЖНО: Этот новостной дайджест создан ИИ. Рекомендуется проверять информацию из надежных источников.
+ПРЕДУПРЕЖДЕНИЕ: Этот новостной дайджест создан ИИ. ВСЕГДА проверяйте информацию из нескольких надежных источников перед публикацией.
 """
 
 class UniversalAIClient:
