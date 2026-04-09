@@ -8,10 +8,9 @@ class CacheManager:
     def __init__(self):
         self.cache_prefix = "news_cache:"
         self.limits_prefix = "api_limits:"
-        self.cache_duration_hours = 2  #_news cached for 2 hours
-        self.daily_limit = 15  # Gemini free tier limit
-        self.requests_today = 0
-        self.last_reset_date = None
+        self.cache_duration_hours = 2  # news cached for 2 hours
+        self.requests_today = {}
+        self.last_reset_date = {}
         
     def _get_cache_key(self, topics: List[str]) -> str:
         """Generate cache key based on topics"""
@@ -59,65 +58,74 @@ class CacheManager:
         except Exception as e:
             print(f"Cache write error: {e}")
     
-    def check_api_limits(self) -> Dict[str, any]:
-        """Check and update API usage limits"""
+    def check_api_limits(self, provider: str = "groq") -> Dict[str, any]:
+        """Check and update API usage limits for different providers"""
         today = datetime.now().date().isoformat()
+        
+        # Default limits
+        default_limits = {
+            "gemini": 15,
+            "groq": 43200
+        }
         
         try:
             limits_data = storage.get_channels_data()
-            limits_key = f"{self.limits_prefix}usage"
+            limits_key = f"{self.limits_prefix}{provider}_usage"
             
             if limits_key in limits_data:
                 usage = limits_data[limits_key]
-                self.requests_today = usage.get("requests_today", 0)
-                self.last_reset_date = usage.get("last_reset_date")
+                self.requests_today[provider] = usage.get("requests_today", 0)
+                self.last_reset_date[provider] = usage.get("last_reset_date")
                 
                 # Reset counter if it's a new day
-                if self.last_reset_date != today:
-                    self.requests_today = 0
-                    self.last_reset_date = today
+                if self.last_reset_date[provider] != today:
+                    self.requests_today[provider] = 0
+                    self.last_reset_date[provider] = today
             else:
-                self.requests_today = 0
-                self.last_reset_date = today
+                self.requests_today[provider] = 0
+                self.last_reset_date[provider] = today
                 
+            daily_limit = default_limits.get(provider, 100)
+            
             return {
-                "requests_today": self.requests_today,
-                "daily_limit": self.daily_limit,
-                "remaining": max(0, self.daily_limit - self.requests_today),
-                "reset_time": self.last_reset_date,
-                "can_request": self.requests_today < self.daily_limit
+                "requests_today": self.requests_today[provider],
+                "daily_limit": daily_limit,
+                "remaining": max(0, daily_limit - self.requests_today[provider]),
+                "reset_time": self.last_reset_date[provider],
+                "can_request": self.requests_today[provider] < daily_limit
             }
             
         except Exception as e:
             print(f"API limits check error: {e}")
+            daily_limit = default_limits.get(provider, 100)
             return {
                 "requests_today": 0,
-                "daily_limit": self.daily_limit,
-                "remaining": self.daily_limit,
+                "daily_limit": daily_limit,
+                "remaining": daily_limit,
                 "reset_time": today,
                 "can_request": True
             }
     
-    def record_api_request(self) -> bool:
+    def record_api_request(self, provider: str = "groq") -> bool:
         """Record an API request, return True if successful"""
-        limits = self.check_api_limits()
+        limits = self.check_api_limits(provider)
         
         if not limits["can_request"]:
             return False
             
         try:
             limits_data = storage.get_channels_data()
-            limits_key = f"{self.limits_prefix}usage"
+            limits_key = f"{self.limits_prefix}{provider}_usage"
             
-            self.requests_today += 1
+            self.requests_today[provider] += 1
             
             limits_data[limits_key] = {
-                "requests_today": self.requests_today,
-                "last_reset_date": self.last_reset_date
+                "requests_today": self.requests_today[provider],
+                "last_reset_date": self.last_reset_date[provider]
             }
             
             storage.save_channels_data(limits_data)
-            print(f"API request recorded. Total today: {self.requests_today}/{self.daily_limit}")
+            print(f"API request recorded for {provider}. Total today: {self.requests_today[provider]}/{limits['daily_limit']}")
             return True
             
         except Exception as e:

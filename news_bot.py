@@ -14,6 +14,7 @@ from storage import storage
 from validators import InputValidator, ErrorHandler, ValidationError
 from gemini_client import create_gemini_client
 from cache_manager import cache_manager
+from universal_ai_client import create_ai_client
 
 load_dotenv()
 
@@ -23,14 +24,36 @@ API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("NEWS_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+# AI Provider selection: "gemini", "groq"
+AI_PROVIDER = os.getenv("AI_PROVIDER", "groq")  # Default to Groq
+
+# Daily request limits for different providers
+DAILY_LIMITS = {
+    "gemini": 15,
+    "groq": 43200  # 30 requests/minute * 24 hours
+}
 
 DATA_DIR = Path("/app/data")
 DATA_DIR.mkdir(exist_ok=True)
 CHANNELS_FILE = DATA_DIR / "channels.json"
 
-# ================== GEMINI ==================
+# ================== AI CLIENT SETUP ==================
 
-client_ai = create_gemini_client(GEMINI_API_KEY)
+# Initialize AI client based on provider
+if AI_PROVIDER == "gemini":
+    client_ai = create_gemini_client(GEMINI_API_KEY)
+    ai_api_key = GEMINI_API_KEY
+elif AI_PROVIDER == "groq":
+    client_ai = create_ai_client("groq", GROQ_API_KEY)
+    ai_api_key = GROQ_API_KEY
+else:
+    raise Exception(f"Unsupported AI provider: {AI_PROVIDER}")
+
+print(f"Using AI provider: {AI_PROVIDER}")
+print(f"Daily limit: {DAILY_LIMITS[AI_PROVIDER]} requests")
 
 # ================== CLIENT ==================
 
@@ -187,11 +210,12 @@ async def post_now(event):
     user_id = event.sender_id
 
     # Check API limits first
-    limits = cache_manager.check_api_limits()
+    limits = cache_manager.check_api_limits(AI_PROVIDER)
     if not limits["can_request"]:
         time_until_reset = cache_manager.get_time_until_reset()
         await event.reply(
             f"**API Limit Reached**\n\n"
+            f"Provider: {AI_PROVIDER}\n"
             f"Used: {limits['requests_today']}/{limits['daily_limit']} requests\n"
             f"Reset in: {time_until_reset}\n\n"
             f"Try:\n"
@@ -207,7 +231,8 @@ async def post_now(event):
     }
 
     await event.reply(
-        "**API Status**: Available\n\n"
+        f"**API Status**: Available\n\n"
+        f"Provider: {AI_PROVIDER}\n"
         f"Requests today: {limits['requests_today']}/{limits['daily_limit']}\n\n"
         "Send channel username for publication:\n\n"
         "`@my_channel`"
@@ -221,13 +246,16 @@ async def limits(event):
     if not event.is_private:
         return
 
-    limits = cache_manager.check_api_limits()
+    limits = cache_manager.check_api_limits(AI_PROVIDER)
     time_until_reset = cache_manager.get_time_until_reset()
 
     await event.reply(
-        f"**API Limits**\n\n"
+        f"**API Limits - {AI_PROVIDER.title()}**\n\n"
+        f"Provider: {AI_PROVIDER}\n"
         f"Used: {limits['requests_today']}/{limits['daily_limit']} requests\n"
-        f"Reset in: {time_until_reset}"
+        f"Remaining: {limits['remaining']}\n"
+        f"Reset in: {time_until_reset}\n\n"
+        f"Daily limit: {DAILY_LIMITS[AI_PROVIDER]} requests"
     )
 
 # ================== CHANNEL INPUT ==================
