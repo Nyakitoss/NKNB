@@ -43,17 +43,27 @@ CHANNELS_FILE = DATA_DIR / "channels.json"
 # ================== AI CLIENT SETUP ==================
 
 # Initialize AI client based on provider
-if AI_PROVIDER == "gemini":
-    client_ai = create_gemini_client(GEMINI_API_KEY)
-    ai_api_key = GEMINI_API_KEY
-elif AI_PROVIDER == "groq":
-    client_ai = create_ai_client("groq", GROQ_API_KEY)
-    ai_api_key = GROQ_API_KEY
-else:
-    raise Exception(f"Unsupported AI provider: {AI_PROVIDER}")
+try:
+    if AI_PROVIDER == "gemini":
+        if not GEMINI_API_KEY:
+            raise Exception("GEMINI_API_KEY is required for Gemini provider")
+        client_ai = create_gemini_client(GEMINI_API_KEY)
+        ai_api_key = GEMINI_API_KEY
+    elif AI_PROVIDER == "groq":
+        if not GROQ_API_KEY:
+            raise Exception("GROQ_API_KEY is required for Groq provider")
+        client_ai = create_ai_client("groq", GROQ_API_KEY)
+        ai_api_key = GROQ_API_KEY
+    else:
+        raise Exception(f"Unsupported AI provider: {AI_PROVIDER}")
 
-print(f"Using AI provider: {AI_PROVIDER}")
-print(f"Daily limit: {DAILY_LIMITS[AI_PROVIDER]} requests")
+    print(f"🤖 Using AI provider: {AI_PROVIDER}")
+    print(f"📊 Daily limit: {DAILY_LIMITS[AI_PROVIDER]} requests")
+    print(f"🔑 API key configured: {'✅' if ai_api_key else '❌'}")
+    
+except Exception as e:
+    print(f"❌ Failed to initialize AI client: {e}")
+    raise
 
 # ================== CLIENT ==================
 

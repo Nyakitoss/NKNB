@@ -11,15 +11,20 @@ class BaseAIProvider(ABC):
 
 class GroqProvider(BaseAIProvider):
     def __init__(self, api_key: str):
+        if not api_key:
+            raise Exception("Groq API key is required")
+        
         self.api_key = api_key
         self.base_url = "https://api.groq.com/openai/v1"
-        # Best models for news generation
+        # Best models for news generation (updated 2024)
         self.models = [
-            "llama-3.1-70b-versatile",  # Best quality
-            "llama3-70b-8192",          # Stable and fast
-            "mixtral-8x7b-32768"        # Good for long texts
+            "llama-3.1-70b-versatile",  # Best quality, latest model
+            "llama3-70b-8192",          # Stable and reliable
+            "mixtral-8x7b-32768"        # Good for long content
         ]
         self.current_model_index = 0
+        
+        print(f"🔑 Groq provider initialized with {len(self.models)} models")
         
     def _get_current_model(self) -> str:
         return self.models[self.current_model_index]
@@ -53,35 +58,49 @@ class GroqProvider(BaseAIProvider):
             }
             
             try:
-                print(f"Trying Groq model: {model}")
+                print(f"🚀 Trying Groq model: {model}")
                 
                 async with aiohttp.ClientSession() as session:
                     async with session.post(
                         f"{self.base_url}/chat/completions",
                         headers=headers,
                         json=data,
-                        timeout=aiohttp.ClientTimeout(total=60)
+                        timeout=aiohttp.ClientTimeout(total=90)  # Increased timeout
                     ) as response:
                         if response.status == 200:
                             result = await response.json()
-                            print(f"Successfully generated news using {model}")
+                            print(f"✅ Successfully generated news using {model}")
                             return result["choices"][0]["message"]["content"]
                         else:
                             error_text = await response.text()
-                            print(f"Model {model} failed: {response.status} - {error_text}")
+                            print(f"❌ Model {model} failed: {response.status} - {error_text}")
+                            
+                            # Handle specific error codes
+                            if response.status == 429:
+                                print("⏳ Rate limit hit, waiting before next model...")
+                                await asyncio.sleep(2)
+                            
                             if model_index < len(self.models) - 1:
                                 continue
                             else:
                                 raise Exception(f"All Groq models failed. Last error: {response.status} - {error_text}")
                                 
             except asyncio.TimeoutError:
-                print(f"Model {model} timeout")
+                print(f"⏰ Model {model} timeout (90s)")
                 if model_index < len(self.models) - 1:
                     continue
                 else:
                     raise Exception("All Groq models timed out")
             except Exception as e:
-                print(f"Model {model} error: {str(e)}")
+                error_str = str(e).lower()
+                print(f"💥 Model {model} error: {str(e)}")
+                
+                # Handle specific errors
+                if "quota" in error_str or "limit" in error_str:
+                    raise Exception(f"Groq quota exceeded: {str(e)}")
+                elif "api key" in error_str:
+                    raise Exception(f"Invalid Groq API key: {str(e)}")
+                
                 if model_index < len(self.models) - 1:
                     continue
                 else:
