@@ -182,10 +182,15 @@ def sanitize_text(text):
 
 def build_topic_buttons(user_id):
 
-    selected = user_sessions.get(
-        user_id,
-        {}
-    ).get("topics", [])
+    session = user_sessions.get(user_id, {})
+    selected = session.get("topics", [])
+    
+    # If this is a channel configuration, load saved topics
+    if "channel" in session and not selected:
+        channel_id = str(session["channel"])
+        if channel_id in channels_data:
+            selected = channels_data[channel_id].get("topics", [])
+            session["topics"] = selected  # Update session with loaded topics
 
     buttons = []
 
@@ -263,6 +268,25 @@ async def start(event):
         "⚠️ Бот должен быть администратором канала."
     )
     
+# ================== EDIT TIME COMMAND ==================
+
+@client.on(events.NewMessage(pattern="/edit_time"))
+async def edit_time(event):
+    if not event.is_private:
+        return
+    
+    user_id = event.sender_id
+    await event.reply(
+        "**Edit Posting Time**\n\n"
+        "Send channel username to edit posting time:\n"
+        "Example: @my_channel\n\n"
+        "Current channels will be listed with their current times."
+    )
+    
+    user_sessions[user_id] = {
+        "mode": "edit_time"
+    }
+
 # ================== POST NOW COMMAND ==================
 
 @client.on(events.NewMessage(pattern="/post_now"))
@@ -336,6 +360,36 @@ async def handle_channel_input(event):
     if text.startswith("/"):
         return
 
+    # Handle time setting for edit_time_set mode
+    session = user_sessions.get(user_id)
+    if session and session.get("mode") == "edit_time_set":
+        # Validate time format HH:MM
+        import re
+        time_pattern = re.compile(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$')
+        
+        if not time_pattern.match(text):
+            await event.reply(
+                "Invalid time format!\n\n"
+                "Please use HH:MM format (24-hour)\n"
+                "Examples: 08:00, 14:30, 18:00\n\n"
+                "Available times: 00:00 - 23:59"
+            )
+            return
+        
+        cid = session["channel"]
+        channels_data[str(cid)]["time"] = text
+        save_channels()
+        
+        await event.reply(
+            f"**Posting time updated successfully!**\n\n"
+            f"New time: {text}\n"
+            f"Channel: {await client.get_entity(int(cid))}\n\n"
+            f"News will now be posted at {text} daily."
+        )
+        
+        del user_sessions[user_id]
+        return
+
     if not text.startswith("@"):
         return
 
@@ -360,6 +414,26 @@ async def handle_channel_input(event):
         cid = entity.id
 
         session = user_sessions.get(user_id)
+
+        # ===== EDIT_TIME MODE =====
+        
+        if session and session.get("mode") == "edit_time":
+            # Show current time and ask for new time
+            current_config = channels_data.get(str(cid))
+            current_time = current_config.get("time", "09:00") if current_config else "09:00"
+            
+            user_sessions[user_id] = {
+                "mode": "edit_time_set",
+                "channel": cid
+            }
+            
+            await event.reply(
+                f"**Current posting time for {text}:** {current_time}\n\n"
+                "Send new time in format HH:MM (24-hour)\n"
+                "Examples: 08:00, 14:30, 18:00\n\n"
+                "Available times: 00:00 - 23:59"
+            )
+            return
 
         # ===== POST_NOW MODE =====
 
@@ -516,18 +590,24 @@ async def callbacks(event):
 
         cid = session["channel"]
         topics = session["topics"]
+        
+        # Get current time or use default
+        current_config = channels_data.get(str(cid))
+        current_time = current_config.get("time", "09:00") if current_config else "09:00"
 
         channels_data[cid] = {
             "owner": user_id,
             "topics": topics,
-            "time": "09:00"
+            "time": current_time
         }
 
         save_channels()
 
         await event.edit(
-            "✅ Настройки сохранены.\n"
-            "Новости будут публиковаться в 09:00."
+            "**Settings saved successfully!**\n\n"
+            f"Topics: {len(topics)} selected\n"
+            f"Posting time: {current_time}\n\n"
+            "Use `/edit_time` to change posting time."
         )
 
 # ================== DAILY LOOP ==================
@@ -641,8 +721,13 @@ async def main():
         bot_token=BOT_TOKEN
     )
 
-    print("news bot started")
-    print("Server time:", datetime.now())
+    print("=" * 50)
+    print("=== NEWS BOT STARTED ===")
+    print(f"Server time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Timezone: {datetime.now().astimezone().tzinfo}")
+    print(f"AI Provider: {AI_PROVIDER}")
+    print(f"Redis Storage: {'Enabled' if storage.use_redis else 'Disabled (Local)'}")
+    print("=" * 50)
 
     asyncio.create_task(
         daily_loop()
