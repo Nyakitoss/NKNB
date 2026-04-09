@@ -3,6 +3,7 @@ import json
 import redis
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 
 load_dotenv()
 
@@ -11,24 +12,41 @@ class StorageManager:
         self.use_redis = os.getenv("USE_REDIS", "false").lower() == "true"
         
         if self.use_redis:
-            self.redis_client = redis.Redis(
-                host=os.getenv("REDIS_HOST", "localhost"),
-                port=int(os.getenv("REDIS_PORT", 6379)),
-                password=os.getenv("REDIS_PASSWORD"),
-                decode_responses=True
-            )
+            self.redis_client = self._create_redis_client()
             self._test_redis_connection()
         else:
             self.redis_client = None
             self._local_storage = {}
     
+    def _create_redis_client(self):
+        """Create Redis client from URL or individual parameters"""
+        redis_url = os.getenv("REDIS_URL")
+        
+        if redis_url:
+            # Use REDIS_URL (Railway format: redis://user:pass@host:port)
+            print(f"**LOG: Connecting to Redis via URL: {redis_url.split('@')[1] if '@' in redis_url else redis_url}**")
+            return redis.from_url(redis_url, decode_responses=True)
+        else:
+            # Use individual parameters (fallback)
+            host = os.getenv("REDIS_HOST", "localhost")
+            port = int(os.getenv("REDIS_PORT", 6379))
+            password = os.getenv("REDIS_PASSWORD")
+            
+            print(f"**LOG: Connecting to Redis via host: {host}:{port}**")
+            return redis.Redis(
+                host=host,
+                port=port,
+                password=password,
+                decode_responses=True
+            )
+    
     def _test_redis_connection(self):
         try:
             self.redis_client.ping()
-            print("✅ Redis connected successfully")
+            print("**LOG: Redis connected successfully**")
         except Exception as e:
-            print(f"❌ Redis connection failed: {e}")
-            print("🔄 Falling back to local storage")
+            print(f"**LOG: Redis connection failed: {e}**")
+            print("**LOG: Falling back to local storage**")
             self.use_redis = False
             self.redis_client = None
             self._local_storage = {}
