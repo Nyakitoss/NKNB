@@ -10,6 +10,18 @@ class BotLogger:
         self.hourly_task = None
         self.running = False
         
+    async def log_bot_startup(self, ai_provider: str, models_count: int):
+        """Log bot startup information"""
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "type": "bot_startup",
+            "ai_provider": ai_provider,
+            "models_count": models_count,
+            "message": f"Bot started with {ai_provider} provider and {models_count} models"
+        }
+        await self._write_log(log_entry)
+        print(f"**LOG: Bot startup logged - Provider: {ai_provider}, Models: {models_count}**")
+        
     async def start_hourly_logging(self):
         """Start logging current time every hour"""
         if self.running:

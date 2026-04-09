@@ -58,14 +58,16 @@ class CacheManager:
         except Exception as e:
             print(f"Cache write error: {e}")
     
-    def check_api_limits(self, provider: str = "groq") -> Dict[str, any]:
+    def check_api_limits(self, provider: str = "openrouter") -> Dict[str, any]:
         """Check and update API usage limits for different providers"""
         today = datetime.now().date().isoformat()
         
         # Default limits
         default_limits = {
             "gemini": 15,
-            "groq": 43200
+            "groq": 43200,
+            "grok": 100,
+            "openrouter": 1000
         }
         
         try:
@@ -106,7 +108,7 @@ class CacheManager:
                 "can_request": True
             }
     
-    def record_api_request(self, provider: str = "groq") -> bool:
+    def record_api_request(self, provider: str = "openrouter") -> bool:
         """Record an API request, return True if successful"""
         limits = self.check_api_limits(provider)
         

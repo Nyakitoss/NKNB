@@ -14,7 +14,7 @@ from storage import storage
 from validators import InputValidator, ErrorHandler, ValidationError
 from gemini_client import create_gemini_client
 from cache_manager import cache_manager
-from grok_client import create_ai_client
+from openrouter_client import create_ai_client
 from logger import logger
 
 load_dotenv()
@@ -27,15 +27,17 @@ BOT_TOKEN = os.getenv("NEWS_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROK_API_KEY = os.getenv("GROK_API_KEY", "")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
-# AI Provider selection: "gemini", "groq", "grok"
-AI_PROVIDER = os.getenv("AI_PROVIDER", "grok")  # Default to Grok
+# AI Provider selection: "gemini", "groq", "grok", "openrouter"
+AI_PROVIDER = os.getenv("AI_PROVIDER", "openrouter")  # Default to OpenRouter
 
 # Daily request limits for different providers
 DAILY_LIMITS = {
     "gemini": 15,
     "groq": 43200,
-    "grok": 100  # Estimated limit for xAI
+    "grok": 100,
+    "openrouter": 1000  # Estimated limit for free tier
 }
 
 DATA_DIR = Path("/app/data")
@@ -51,22 +53,32 @@ try:
             raise Exception("GEMINI_API_KEY is required for Gemini provider")
         client_ai = create_gemini_client(GEMINI_API_KEY)
         ai_api_key = GEMINI_API_KEY
+        models_count = 3  # Gemini models
     elif AI_PROVIDER == "groq":
         if not GROQ_API_KEY:
             raise Exception("GROQ_API_KEY is required for Groq provider")
         client_ai = create_ai_client("groq", GROQ_API_KEY)
         ai_api_key = GROQ_API_KEY
+        models_count = 3  # Groq models
     elif AI_PROVIDER == "grok":
         if not GROK_API_KEY:
             raise Exception("GROK_API_KEY is required for Grok provider")
         client_ai = create_ai_client("grok", GROK_API_KEY)
         ai_api_key = GROK_API_KEY
+        models_count = 6  # Grok models
+    elif AI_PROVIDER == "openrouter":
+        if not OPENROUTER_API_KEY:
+            raise Exception("OPENROUTER_API_KEY is required for OpenRouter provider")
+        client_ai = create_ai_client("openrouter", OPENROUTER_API_KEY)
+        ai_api_key = OPENROUTER_API_KEY
+        models_count = 23  # OpenRouter free models
     else:
         raise Exception(f"Unsupported AI provider: {AI_PROVIDER}")
 
     print(f"**LOG: Using AI provider: {AI_PROVIDER}**")
     print(f"**LOG: Daily limit: {DAILY_LIMITS[AI_PROVIDER]} requests**")
     print(f"**LOG: API key configured: {'YES' if ai_api_key else 'NO'}**")
+    print(f"**LOG: Models available: {models_count}**")
     
 except Exception as e:
     print(f"**LOG: Failed to initialize AI client: {e}**")
