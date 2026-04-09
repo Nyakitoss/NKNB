@@ -16,11 +16,12 @@ class GroqProvider(BaseAIProvider):
         
         self.api_key = api_key
         self.base_url = "https://api.groq.com/openai/v1"
-        # Best models for news generation (updated 2024)
+        # Best models for news generation (updated April 2025)
+        # Using only production models for stability
         self.models = [
-            "llama-3.1-70b-versatile",  # Best quality, latest model
-            "llama3-70b-8192",          # Stable and reliable
-            "mixtral-8x7b-32768"        # Good for long content
+            "llama-3.3-70b-versatile",  # Best quality, latest production model
+            "llama-3.1-8b-instant",     # Fast and efficient
+            "openai/gpt-oss-120b",        # Large model for comprehensive news
         ]
         self.current_model_index = 0
         
