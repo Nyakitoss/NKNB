@@ -883,7 +883,7 @@ class NewsParser:
             return []
     
     def _is_recent_news(self, pub_date: str) -> bool:
-        """Strict check that news is not older than 24 hours"""
+        """Strict check that news is not older than 24 hours with proper timezone handling"""
         try:
             if not pub_date:
                 # If no date, assume it's recent but log warning
@@ -892,7 +892,7 @@ class NewsParser:
                 
             current_time = datetime.now()
             
-            # Parse date with multiple formats
+            # Parse date with multiple formats including timezone handling
             date_formats = [
                 "%a, %d %b %Y %H:%M:%S %z",  # RFC 2822 with timezone
                 "%a, %d %b %Y %H:%M:%S %Z",  # RFC 2822 with UTC/GMT
@@ -904,9 +904,24 @@ class NewsParser:
             ]
             
             parsed_date = None
+            original_timezone = None
+            
             for fmt in date_formats:
                 try:
-                    parsed_date = datetime.strptime(pub_date, fmt)
+                    if "%z" in fmt or "%Z" in fmt:
+                        # For timezone-aware formats
+                        parsed_date = datetime.strptime(pub_date, fmt)
+                        if parsed_date.tzinfo is not None:
+                            original_timezone = parsed_date.tzinfo
+                            # Convert to UTC first, then to local time
+                            utc_time = parsed_date.astimezone(datetime.timezone.utc)
+                            parsed_date = utc_time.replace(tzinfo=None)
+                        else:
+                            parsed_date = parsed_date.replace(tzinfo=None)
+                    else:
+                        # For naive formats
+                        parsed_date = datetime.strptime(pub_date, fmt)
+                        parsed_date = parsed_date.replace(tzinfo=None)
                     break
                 except ValueError:
                     continue
@@ -915,12 +930,15 @@ class NewsParser:
                 print(f"**LOG: Warning - Could not parse date: {pub_date}**")
                 return True  # If we can't parse, assume recent
             
-            # Convert timezone-aware to naive for comparison
-            if parsed_date.tzinfo is not None:
-                parsed_date = parsed_date.replace(tzinfo=None)
-            
-            # Calculate exact time difference
+            # Calculate time difference
             time_diff = current_time - parsed_date
+            
+            # Handle negative time differences (future dates)
+            if time_diff.total_seconds() < 0:
+                # News appears to be from the future, treat as recent
+                hours_future = abs(time_diff.total_seconds()) / 3600
+                print(f"**LOG: Future date detected: {hours_future:.1f} hours ahead, treating as recent**")
+                return True
             
             # Strict 24-hour limit (86400 seconds)
             if time_diff.total_seconds() > 86400:
