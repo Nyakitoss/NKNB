@@ -80,10 +80,13 @@ class NewsAnalyzer:
                 title = news_item.get("title", "")
                 desc = news_item.get("description", "")
                 source = news_item.get("source", "RSS Feed")
+                link = news_item.get("link", "")
                 
                 prompt += f"\n{i+1}. {title}\n"
                 prompt += f"   Кратко: {desc[:200]}...\n"
                 prompt += f"   Источник: {source}\n"
+                if link:
+                    prompt += f"   Ссылка: {link}\n"
         
         prompt += f"""
 ТРЕБОВАНИЯ К АНАЛИЗУ:
@@ -95,6 +98,7 @@ class NewsAnalyzer:
 6. ДОБАВЬ релевантные эмодзи
 7. РАЗДЕЛИ темы пустыми строками
 8. БУДЬ объективным и фактичным
+9. ВКЛЮЧИ ссылки на источники после каждой новости
 
 ФОРМАТ ВЫВОДА:
 📰 **Ежедневный дайджест | {current_date}**
@@ -102,17 +106,18 @@ class NewsAnalyzer:
 📌 **ТЕМА 1:**
 🔹 **Главная новость** - краткое описание (1-2 предложения)
    📊 **Анализ:** возможные последствия
+   **Источник:** [Оригинальная ссылка]
 
 🔹 **Вторая новость** - краткое описание  
    📊 **Анализ:** возможные последствия
+   **Источник:** [Оригинальная ссылка]
 
 📌 **ТЕМА 2:**
 🔹 **Новость** - краткое описание
    📊 **Анализ:** возможные последствия
+   **Источник:** [Оригинальная ссылка]
 
-📌 **ДРУГИЕ ВАЖНЫЕ НОВОСТИ:**
-🔹 **Событие** - краткое описание
-   📊 **Анализ:** возможные последствия
+Продолжайте с другими темами...
 
 ---
 *Источник: агрегация RSS-лент российских СМИ*
@@ -122,47 +127,55 @@ class NewsAnalyzer:
         return prompt
     
     def _fallback_analysis(self, news_items: List[Dict], topics: List[str]) -> str:
-        """Запасной анализ без ИИ"""
+        """Fallback analysis without AI with source links"""
         current_date = datetime.now().strftime("%d.%m.%Y")
         
-        # Группируем и отбираем лучшие новости
+        # Group and select best news
         grouped_news = self._group_news_by_topics(news_items, topics)
         
-        result = f"📰 **Ежедневный дайджест | {current_date}**\n\n"
+        result = f"**Daily Digest | {current_date}**\n\n"
         
         has_news = False
         for topic in topics:
             news_list = grouped_news.get(topic, [])
             if news_list:
                 has_news = True
-                result += f"📌 **{topic.upper()}:**\n"
+                result += f"**{topic.upper()}:**\n"
                 
-                # Берем 3 лучшие новости по теме
+                # Take 3 best news items per topic
                 for i, news_item in enumerate(news_list[:3]):
                     title = news_item.get("title", "")
                     desc = news_item.get("description", "")
                     source = news_item.get("source", "RSS Feed")
+                    link = news_item.get("link", "")
                     
-                    # Сокращаем описание
+                    # Shorten description
                     if len(desc) > 150:
                         desc = desc[:147] + "..."
                     
-                    result += f"🔹 **{title}**\n"
-                    result += f"   {desc}\n"
-                    result += f"   📊 *Источник: {source}*\n\n"
+                    result += f"- **{title}**\n"
+                    result += f"  {desc}\n"
+                    
+                    # Add source with link if available
+                    if link:
+                        result += f"  **Source:** [{source}]({link})\n"
+                    else:
+                        result += f"  **Source:** {source}\n"
+                    
+                    result += "\n"
             else:
-                # Если новостей по теме нет
-                result += f"📌 **{topic.upper()}:**\n"
-                result += f"   🔹 Новостей по данной категории не оказалось за эти сутки.\n"
-                result += f"   💡 Возможно, новости появятся завтра!\n\n"
+                # If no news for the topic
+                result += f"**{topic.upper()}:**\n"
+                result += f"  - No news found for this topic in the last 24 hours.\n"
+                result += f"  - News may appear tomorrow!\n\n"
         
         if not has_news:
-            result += "📌 **Ни по одной из тем новостей не найдено за последние 24 часа.**\n\n"
-            result += "💡 Попробуйте изменить темы или повторите попытку позже.\n"
+            result += "**No news found for any topic in the last 24 hours.**\n\n"
+            result += "**Try changing topics or repeat later.**\n"
         
         result += "---\n"
-        result += "*Источник: агрегация RSS-лент российских СМИ*\n"
-        result += "*Анализ выполнен без ИИ (резервный режим)*\n"
+        result += "*Source: RSS aggregation of Russian and international media*\n"
+        result += "*Analysis performed without AI (fallback mode)*\n"
         
         return result
 

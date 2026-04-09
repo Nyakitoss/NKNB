@@ -883,18 +883,24 @@ class NewsParser:
             return []
     
     def _is_recent_news(self, pub_date: str) -> bool:
-        """Проверяет, что новость не старше 24 часов"""
+        """Strict check that news is not older than 24 hours"""
         try:
             if not pub_date:
-                return True  # Если даты нет, считаем свежей
+                # If no date, assume it's recent but log warning
+                print("**LOG: Warning - News item has no date, assuming recent**")
+                return True
                 
-            # Парсим дату (разные форматы)
+            current_time = datetime.now()
+            
+            # Parse date with multiple formats
             date_formats = [
-                "%a, %d %b %Y %H:%M:%S %z",  # RFC 2822
-                "%a, %d %b %Y %H:%M:%S %Z",  # RFC 2822 без смещения
-                "%Y-%m-%dT%H:%M:%S%z",          # ISO 8601
+                "%a, %d %b %Y %H:%M:%S %z",  # RFC 2822 with timezone
+                "%a, %d %b %Y %H:%M:%S %Z",  # RFC 2822 with UTC/GMT
+                "%Y-%m-%dT%H:%M:%S%z",          # ISO 8601 with timezone
                 "%Y-%m-%dT%H:%M:%SZ",          # ISO 8601 UTC
-                "%a, %d %b %Y %H:%M:%S GMT",  # GMT
+                "%a, %d %b %Y %H:%M:%S GMT",  # GMT format
+                "%Y-%m-%d %H:%M:%S",           # Simple format
+                "%Y-%m-%d",                    # Date only (assume midnight)
             ]
             
             parsed_date = None
@@ -906,15 +912,30 @@ class NewsParser:
                     continue
             
             if parsed_date is None:
-                return True  # Если не смогли распарсить, считаем свежей
-                
-            # Проверяем, что новость не старше 24 часов
-            time_diff = datetime.now() - parsed_date
-            return time_diff.total_seconds() < 86400  # 24 часа
+                print(f"**LOG: Warning - Could not parse date: {pub_date}**")
+                return True  # If we can't parse, assume recent
+            
+            # Convert timezone-aware to naive for comparison
+            if parsed_date.tzinfo is not None:
+                parsed_date = parsed_date.replace(tzinfo=None)
+            
+            # Calculate exact time difference
+            time_diff = current_time - parsed_date
+            
+            # Strict 24-hour limit (86400 seconds)
+            if time_diff.total_seconds() > 86400:
+                print(f"**LOG: News too old: {time_diff.total_seconds()/3600:.1f} hours ago**")
+                return False
+            
+            # Log age for debugging
+            hours_ago = time_diff.total_seconds() / 3600
+            print(f"**LOG: News age: {hours_ago:.1f} hours ago**")
+            
+            return True
             
         except Exception as e:
             print(f"**LOG: Date parsing error: {str(e)}**")
-            return True
+            return True  # If error, assume recent
     
     def get_cached_news(self) -> Optional[List[Dict]]:
         """Получает кэшированные новости"""
