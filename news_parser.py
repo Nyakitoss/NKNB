@@ -1,7 +1,7 @@
 import asyncio
 import aiohttp
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from pathlib import Path
 
@@ -914,7 +914,7 @@ class NewsParser:
                         if parsed_date.tzinfo is not None:
                             original_timezone = parsed_date.tzinfo
                             # Convert to UTC first, then to local time
-                            utc_time = parsed_date.astimezone(datetime.timezone.utc)
+                            utc_time = parsed_date.astimezone(timezone.utc)
                             parsed_date = utc_time.replace(tzinfo=None)
                         else:
                             parsed_date = parsed_date.replace(tzinfo=None)

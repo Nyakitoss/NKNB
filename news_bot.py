@@ -214,6 +214,41 @@ def build_topic_buttons(user_id):
 
     return buttons
 
+def build_user_channel_buttons(user_id, mode="config"):
+    """Build buttons for user's saved channels"""
+    user_channels = storage.get_user_channels(user_id)
+    
+    if not user_channels:
+        return None
+    
+    buttons = []
+    
+    for channel_id, channel_info in user_channels.items():
+        title = channel_info.get("title", f"Channel {channel_id}")
+        username = channel_info.get("username", "")
+        
+        if username:
+            display_text = f"📢 {title} (@{username})"
+        else:
+            display_text = f"📢 {title}"
+        
+        buttons.append([
+            Button.inline(
+                display_text,
+                data=f"user_channel:{mode}:{channel_id}"
+            )
+        ])
+    
+    # Add option to enter new channel
+    buttons.append([
+        Button.inline(
+            "➕ Добавить новый канал",
+            data="new_channel"
+        )
+    ])
+    
+    return buttons
+
 # ================== NEWS GENERATION ==================
 
 async def generate_news(topics):
@@ -260,13 +295,23 @@ async def start(event):
     if not event.is_private:
         return
 
-    await event.reply(
-        "📢 Отправьте username канала.\n\n"
-        "Например:\n"
-        "@my_channel\n\n"
-        "⚠️ Канал должен быть публичным.\n\n"
-        "⚠️ Бот должен быть администратором канала."
-    )
+    user_id = event.sender_id
+    saved_channels = build_user_channel_buttons(user_id, "config")
+    
+    if saved_channels:
+        await event.reply(
+            "📢 **Выберите канал или введите новый:**\n\n"
+            "Ваши сохраненные каналы:",
+            buttons=saved_channels
+        )
+    else:
+        await event.reply(
+            "📢 Отправьте username канала.\n\n"
+            "Например:\n"
+            "@my_channel\n\n"
+            "⚠️ Канал должен быть публичным.\n\n"
+            "⚠️ Бот должен быть администратором канала."
+        )
     
 # ================== EDIT TIME COMMAND ==================
 
@@ -276,12 +321,21 @@ async def edit_time(event):
         return
     
     user_id = event.sender_id
-    await event.reply(
-        "**Edit Posting Time**\n\n"
-        "Send channel username to edit posting time:\n"
-        "Example: @my_channel\n\n"
-        "Current channels will be listed with their current times."
-    )
+    saved_channels = build_user_channel_buttons(user_id, "edit_time")
+    
+    if saved_channels:
+        await event.reply(
+            "**Edit Posting Time**\n\n"
+            "Выберите канал для изменения времени:",
+            buttons=saved_channels
+        )
+    else:
+        await event.reply(
+            "**Edit Posting Time**\n\n"
+            "Send channel username to edit posting time:\n"
+            "Example: @my_channel\n\n"
+            "No saved channels found."
+        )
     
     user_sessions[user_id] = {
         "mode": "edit_time"
@@ -313,18 +367,29 @@ async def post_now(event):
         )
         return
 
-    # Wait for channel input mode
+    # Show saved channels
+    saved_channels = build_user_channel_buttons(user_id, "post_now")
+    
+    if saved_channels:
+        await event.reply(
+            f"**API Status**: Available\n\n"
+            f"Provider: {AI_PROVIDER}\n"
+            f"Requests today: {limits['requests_today']}/{limits['daily_limit']}\n\n"
+            "Выберите канал для публикации:",
+            buttons=saved_channels
+        )
+    else:
+        await event.reply(
+            f"**API Status**: Available\n\n"
+            f"Provider: {AI_PROVIDER}\n"
+            f"Requests today: {limits['requests_today']}/{limits['daily_limit']}\n\n"
+            "Send channel username for publication:\n\n"
+            "`@my_channel`"
+        )
+    
     user_sessions[user_id] = {
         "mode": "post_now"
     }
-
-    await event.reply(
-        f"**API Status**: Available\n\n"
-        f"Provider: {AI_PROVIDER}\n"
-        f"Requests today: {limits['requests_today']}/{limits['daily_limit']}\n\n"
-        "Send channel username for publication:\n\n"
-        "`@my_channel`"
-    )
     
 # ================== LIMITS COMMAND ==================
 
@@ -380,10 +445,17 @@ async def handle_channel_input(event):
         channels_data[str(cid)]["time"] = text
         save_channels()
         
+        # Get channel info safely
+        try:
+            channel_entity = await client.get_entity(int(cid))
+            channel_name = channel_entity.title or f"Channel ID: {cid}"
+        except:
+            channel_name = f"Channel ID: {cid}"
+        
         await event.reply(
             f"**Posting time updated successfully!**\n\n"
             f"New time: {text}\n"
-            f"Channel: {await client.get_entity(int(cid))}\n\n"
+            f"Channel: {channel_name}\n\n"
             f"News will now be posted at {text} daily."
         )
         
@@ -412,6 +484,14 @@ async def handle_channel_input(event):
             return
 
         cid = entity.id
+
+        # Save channel to user's list after successful verification
+        channel_info = {
+            "title": entity.title,
+            "username": entity.username
+        }
+        storage.save_user_channel(user_id, str(cid), channel_info)
+        print(f"**LOG: Channel {entity.title} saved for user {user_id}**")
 
         session = user_sessions.get(user_id)
 
@@ -552,6 +632,132 @@ async def callbacks(event):
             buttons=build_topic_buttons(user_id)
         )
 
+        return
+
+    # ===== пользовательский канал =====
+
+    if data.startswith("user_channel:"):
+
+        parts = data.split(":")
+        mode = parts[1]
+        cid = parts[2]
+
+        # Verify user still has access to this channel
+        try:
+            entity = await client.get_entity(int(cid))
+            perms = await client.get_permissions(entity, user_id)
+            
+            if not perms.is_admin:
+                # Remove channel from user's saved channels
+                storage.remove_user_channel(user_id, cid)
+                await event.edit(
+                    "❌ **Доступ потерян**\n\n"
+                    "У вас больше нет прав администратора в этом канале.\n"
+                    "Канал удален из вашего списка."
+                )
+                return
+            
+            # Access confirmed, proceed with mode
+            if mode == "config":
+                user_sessions[user_id] = {
+                    "channel": cid,
+                    "topics": []
+                }
+                await event.edit(
+                    "🧠 Выберите категории:",
+                    buttons=build_topic_buttons(user_id)
+                )
+            elif mode == "edit_time":
+                current_config = channels_data.get(str(cid))
+                current_time = current_config.get("time", "09:00") if current_config else "09:00"
+                
+                user_sessions[user_id] = {
+                    "mode": "edit_time_set",
+                    "channel": cid
+                }
+                
+                await event.edit(
+                    f"**Current posting time:** {current_time}\n\n"
+                    "Send new time in format HH:MM (24-hour)\n"
+                    "Examples: 08:00, 14:30, 18:00\n\n"
+                    "Available times: 00:00 - 23:59"
+                )
+            elif mode == "post_now":
+                await event.edit(
+                    "⏳ Генерирую новости..."
+                )
+                
+                # Get topics for this channel
+                if str(cid) in channels_data:
+                    topics = channels_data[str(cid)]["topics"]
+                else:
+                    topics = [
+                        "Искусственный интеллект",
+                        "Технологии",
+                        "Игры",
+                        "Наука",
+                        "Экономика",
+                        "Криптовалюты",
+                        "Космос",
+                        "Медицина",
+                        "Автомобили",
+                        "Кибербезопасность",
+                        "Политика",
+                        "Общество"
+                    ]
+                
+                news = await generate_news(topics)
+                news = sanitize_text(news)
+                parts = split_message(news)
+
+                for i, part in enumerate(parts):
+                    part = sanitize_text(part)
+                    if not part or len(part.strip()) == 0:
+                        print(f"Skipping empty part #{i}")
+                        continue
+                    
+                    if len(part) > 4096:
+                        print(f"Part #{i} too long ({len(part)} chars), splitting further")
+                        sub_parts = split_message(part, 3500)
+                        for sub_part in sub_parts:
+                            if sub_part.strip():
+                                await client.send_message(
+                                    int(cid),
+                                    sub_part
+                                )
+                                print(f"Sending sub-part length: {len(sub_part)}")
+                    else:
+                        await client.send_message(
+                            int(cid),
+                            part
+                        )
+                        print(f"Sending part #{i} length: {len(part)}")
+
+                await event.edit(
+                    "✅ Новости опубликованы!"
+                )
+            
+        except Exception as e:
+            # Remove channel from user's saved channels on error
+            storage.remove_user_channel(user_id, cid)
+            await event.edit(
+                f"❌ **Ошибка доступа**\n\n"
+                f"Не удалось получить доступ к каналу: {str(e)}\n"
+                f"Канал удален из вашего списка."
+            )
+
+        return
+
+    # ===== новый канал =====
+
+    if data == "new_channel":
+        await event.edit(
+            "📢 Отправьте username канала.\n\n"
+            "Например:\n"
+            "@my_channel\n\n"
+            "⚠️ Канал должен быть публичным.\n\n"
+            "⚠️ Бот должен быть администратором канала."
+        )
         return
 
     # ===== переключить тему =====

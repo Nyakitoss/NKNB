@@ -1,6 +1,7 @@
 import os
 import json
 import redis
+from datetime import datetime
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from urllib.parse import urlparse
@@ -89,6 +90,62 @@ class StorageManager:
             del data[channel_id]
             return self.save_channels_data(data)
         return False
+    
+    def get_user_channels(self, user_id: int) -> Dict[str, Any]:
+        """Get all channels accessible by user"""
+        if self.use_redis and self.redis_client:
+            try:
+                data = self.redis_client.get(f"user_channels:{user_id}")
+                return json.loads(data) if data else {}
+            except Exception as e:
+                print(f"**LOG: Redis read error for user channels: {e}**")
+                return {}
+        else:
+            return self._local_storage.get(f"user_channels:{user_id}", {})
+    
+    def save_user_channel(self, user_id: int, channel_id: str, channel_info: Dict[str, Any]) -> bool:
+        """Save channel to user's accessible channels list"""
+        if self.use_redis and self.redis_client:
+            try:
+                user_channels = self.get_user_channels(user_id)
+                user_channels[channel_id] = {
+                    "title": channel_info.get("title", ""),
+                    "username": channel_info.get("username", ""),
+                    "added_at": datetime.now().isoformat()
+                }
+                self.redis_client.set(f"user_channels:{user_id}", json.dumps(user_channels, ensure_ascii=False))
+                return True
+            except Exception as e:
+                print(f"**LOG: Redis write error for user channels: {e}**")
+                return False
+        else:
+            user_channels = self._local_storage.get(f"user_channels:{user_id}", {})
+            user_channels[channel_id] = {
+                "title": channel_info.get("title", ""),
+                "username": channel_info.get("username", ""),
+                "added_at": datetime.now().isoformat()
+            }
+            self._local_storage[f"user_channels:{user_id}"] = user_channels
+            return True
+    
+    def remove_user_channel(self, user_id: int, channel_id: str) -> bool:
+        """Remove channel from user's accessible channels list"""
+        if self.use_redis and self.redis_client:
+            try:
+                user_channels = self.get_user_channels(user_id)
+                if channel_id in user_channels:
+                    del user_channels[channel_id]
+                    self.redis_client.set(f"user_channels:{user_id}", json.dumps(user_channels, ensure_ascii=False))
+                return True
+            except Exception as e:
+                print(f"**LOG: Redis delete error for user channels: {e}**")
+                return False
+        else:
+            user_channels = self._local_storage.get(f"user_channels:{user_id}", {})
+            if channel_id in user_channels:
+                del user_channels[channel_id]
+                self._local_storage[f"user_channels:{user_id}"] = user_channels
+            return True
 
 # Глобальный экземпляр для совместимости с существующим кодом
 storage = StorageManager()
