@@ -15,7 +15,8 @@ from validators import InputValidator, ErrorHandler, ValidationError
 from gemini_client import create_gemini_client
 from cache_manager import cache_manager
 from openrouter_client import create_ai_client
-from logger import logger
+from news_parser import news_parser
+from news_analyzer import news_analyzer
 
 load_dotenv()
 
@@ -79,6 +80,8 @@ try:
     print(f"**LOG: Daily limit: {DAILY_LIMITS[AI_PROVIDER]} requests**")
     print(f"**LOG: API key configured: {'YES' if ai_api_key else 'NO'}**")
     print(f"**LOG: Models available: {models_count}**")
+    print(f"**LOG: News sources: {len(news_parser.news_sources)} RSS feeds**")
+    print("**LOG: Bot started successfully**")
     
 except Exception as e:
     print(f"**LOG: Failed to initialize AI client: {e}**")
@@ -206,11 +209,43 @@ def build_topic_buttons(user_id):
 
     return buttons
 
-# ================== GEMINI NEWS ==================
+# ================== NEWS GENERATION ==================
 
 async def generate_news(topics):
-    """Генерация новостей через Gemini клиент с retry механизмом"""
-    return await client_ai.generate_news(topics)
+    """Генерация новостей через парсинг и анализ"""
+    try:
+        print(f"**LOG: Starting news generation for topics: {', '.join(topics)}**")
+        
+        # Проверяем кэш новостей
+        cached_news = news_parser.get_cached_news()
+        if cached_news:
+            print("**LOG: Using cached news**")
+            # Фильтруем по темам
+            filtered_news = news_parser.filter_news_by_topics(cached_news, topics)
+            if filtered_news:
+                print(f"**LOG: Found {len(filtered_news)} relevant cached news items**")
+                return await news_analyzer.analyze_news(filtered_news, topics)
+        
+        # Парсим свежие новости
+        print("**LOG: Parsing fresh news from sources**")
+        all_news = await news_parser.parse_all_sources()
+        
+        # Кэшируем результаты
+        news_parser.cache_news(all_news)
+        
+        # Фильтруем по темам
+        filtered_news = news_parser.filter_news_by_topics(all_news, topics)
+        
+        if not filtered_news:
+            print("**LOG: No relevant news found**")
+            return "📰 **Ежедневный дайджест**\n\nК сожалению, не найдено новостей по указанным темам за последние 24 часа.\n\nПопробуйте изменить темы или повторите попытку позже."
+        
+        print(f"**LOG: Analyzing {len(filtered_news)} relevant news items**")
+        return await news_analyzer.analyze_news(filtered_news, topics)
+        
+    except Exception as e:
+        print(f"**LOG: News generation error: {str(e)}**")
+        return f"📰 **Ошибка генерации новостей**\n\nПроизошла ошибка при обработке новостей: {str(e)}\n\nПопробуйте повторить попытку позже."
 
 # ================== START COMMAND ==================
 
